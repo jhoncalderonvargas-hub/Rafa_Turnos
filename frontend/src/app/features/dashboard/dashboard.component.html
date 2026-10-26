@@ -1,0 +1,129 @@
+<div class="min-h-screen bg-slate-50 flex flex-col font-sans">
+  <!-- HEADER INSTITUCIONAL -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shadow-sm sticky top-0 z-30">
+    <div class="flex items-center space-x-4">
+      <div class="w-10 h-10 rounded-lg bg-teal-600 flex items-center justify-center text-white font-bold text-xl shadow-sm">🏥</div>
+      <div>
+        <h1 class="text-lg font-bold text-slate-900 leading-tight">Rafa Turnos</h1>
+        <p class="text-xs text-slate-500">Torre de Control — Gestión Humana / Dirección</p>
+      </div>
+    </div>
+
+    <div class="text-sm font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-3 py-1.5">
+      {{ mesNombre() }} {{ anio() }}
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <button
+        (click)="exportarNominaGlobal()"
+        class="inline-flex items-center space-x-2 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 transition shadow-sm"
+      >
+        <span>📊</span><span>Exportar Nómina Global (.xlsx)</span>
+      </button>
+      <button
+        (click)="volverIntranet()"
+        class="inline-flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm"
+      >
+        <span>←</span><span>Volver a la Intranet</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MÉTRICAS GLOBALES -->
+  <section class="max-w-7xl mx-auto w-full px-6 pt-6 grid grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col space-y-1">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Personal</span>
+      <span class="text-3xl font-black text-slate-900">{{ totalPersonal() }}</span>
+      <span class="text-xs text-slate-400">colaboradores en {{ servicios().length }} servicios</span>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col space-y-1">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cobertura Global</span>
+      <span class="text-3xl font-black {{ coberturaPromedio() >= 100 ? 'text-emerald-600' : coberturaPromedio() >= 90 ? 'text-amber-600' : 'text-rose-600' }}">
+        {{ coberturaPromedio() }}%
+      </span>
+      <span class="text-xs text-slate-400">promedio de dotación asistencial</span>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col space-y-1">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cuadrantes Publicados</span>
+      <span class="text-3xl font-black text-teal-700">{{ serviciosPublicados() }} / {{ servicios().length }}</span>
+      <span class="text-xs text-slate-400">servicios con cuadrante visible al personal</span>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col space-y-1">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Alertas Activas</span>
+      <span class="text-3xl font-black {{ totalAlertas() === 0 ? 'text-emerald-600' : 'text-rose-600' }}">
+        {{ totalAlertas() }}
+      </span>
+      <span class="text-xs text-slate-400">conflictos de descanso o cobertura</span>
+    </div>
+  </section>
+
+  <!-- TABLA TORRE DE CONTROL POR SERVICIO -->
+  <main class="max-w-7xl mx-auto w-full px-6 py-6">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="font-bold text-slate-900 text-sm">Estado de Cuadrantes por Servicio Asistencial</h2>
+        <div class="flex items-center space-x-2">
+          <a routerLink="/servicios" class="text-xs font-semibold text-teal-700 hover:underline">⚙️ Configurar Servicios</a>
+          <span class="text-slate-300">|</span>
+          <a routerLink="/empleados" class="text-xs font-semibold text-teal-700 hover:underline">👥 Directorio Personal</a>
+        </div>
+      </div>
+
+      <table class="w-full border-collapse text-left text-xs">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="p-3.5 font-bold">Servicio</th>
+            <th class="p-3.5 font-bold">Afinidad / Bloque</th>
+            <th class="p-3.5 font-bold text-center">Personal</th>
+            <th class="p-3.5 font-bold text-center">Cobertura</th>
+            <th class="p-3.5 font-bold text-center">Estado Cuadrante</th>
+            <th class="p-3.5 font-bold text-center">Alertas</th>
+            <th class="p-3.5 font-bold text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr *ngFor="let s of servicios()" class="hover:bg-slate-50 transition">
+            <td class="p-3.5">
+              <div class="font-bold text-slate-900">{{ s.nombre }}</div>
+              <div class="text-[10px] font-mono text-slate-400">{{ s.codigo }}</div>
+            </td>
+            <td class="p-3.5">
+              <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                {{ s.tipoAsistencia }}
+              </span>
+            </td>
+            <td class="p-3.5 text-center font-bold text-slate-700">{{ s.totalPersonal }}</td>
+            <td class="p-3.5 text-center">
+              <span class="inline-block px-2 py-0.5 rounded font-bold text-[11px] {{ claseSemaforo(s.coberturaGlobal) }}">
+                {{ iconoSemaforo(s.coberturaGlobal) }} {{ s.coberturaGlobal }}%
+              </span>
+            </td>
+            <td class="p-3.5 text-center">
+              <span class="inline-block px-2 py-0.5 rounded font-bold text-[10px] {{ claseEstado(s.estadoCuadrante) }}">
+                {{ s.estadoCuadrante }}
+              </span>
+            </td>
+            <td class="p-3.5 text-center">
+              <span *ngIf="s.alertas === 0" class="text-emerald-600 font-bold">–</span>
+              <span *ngIf="s.alertas > 0" class="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 font-bold rounded text-[11px]">
+                ⚠️ {{ s.alertas }}
+              </span>
+            </td>
+            <td class="p-3.5 text-right">
+              <a
+                [routerLink]="['/planificador']"
+                [queryParams]="{ servicioId: s.id }"
+                class="px-3 py-1.5 text-[11px] font-semibold text-teal-700 border border-teal-300 rounded-lg hover:bg-teal-50 transition"
+              >
+                Ver Cuadrante →
+              </a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>

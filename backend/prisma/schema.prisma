@@ -1,0 +1,368 @@
+// Rafa Turnos - Prisma Schema
+// Base de datos relacional PostgreSQL para Programación y Gestión de Turnos Hospitalarios
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS DE NEGOCIO HOSPITALARIO
+// ==========================================
+
+enum RolUsuario {
+  SUPERADMIN
+  GESTION_HUMANA
+  JEFE_SERVICIO
+  SUPERVISOR_ENFERMERIA
+  ASISTENCIAL
+  AUDITOR_CALIDAD
+}
+
+enum EstadoCuadrante {
+  BORRADOR          // En confección por el supervisor (privado)
+  VALIDADO          // Sin conflictos de descanso ni coberturas
+  PUBLICADO         // Visible para el personal y la Intranet
+  CERRADO_NOMINA    // Bloqueado definitivamente para reporte contable
+}
+
+enum EstadoPermuta {
+  PENDIENTE_PAR         // Esperando que el compañero acepte
+  RECHAZADA_PAR         // El compañero no aceptó
+  PENDIENTE_SUPERVISOR  // Aceptada por el par, pendiente de firma de la supervisora
+  APROBADA              // Aplicada formalmente en el cuadrante ejecutado
+  RECHAZADA_SUPERVISOR  // Declinada por motivos asistenciales
+  CANCELADA             // Cancelada por el solicitante antes de aprobación
+}
+
+enum TipoNovedad {
+  VACACIONES
+  INCAPACIDAD_GENERAL
+  INCAPACIDAD_LABORAL
+  LICENCIA_MATERNIDAD_PATERNIDAD
+  PERMISO_REMUNERADO
+  PERMISO_NO_REMUNERADO
+}
+
+enum OrigenCambioTurno {
+  PLANIFICACION_MANUAL
+  DRAG_DROP_PALETA
+  RUEDA_CICLICA
+  AUTO_COMPLETAR_COBERTURA
+  ROTACION_INTER_SERVICIO
+  PERMUTA_APROBADA
+  SUSTITUCION_INCAPACIDAD
+  AJUSTE_SUPERVISOR
+}
+
+enum TipoDia {
+  ORDINARIO_HABIL
+  DOMINICAL_FESTIVO
+}
+
+// ==========================================
+// ESTRUCTURA HOSPITALARIA (SERVICIOS) Y PERSONAL
+// Todo se organiza directamente por SERVICIOS (sin dependencias, procesos ni subprocesos)
+// Con soporte para rotación entre servicios con el mismo tipo de asistencia
+// ==========================================
+
+model Servicio {
+  id              String   @id @default(uuid())
+  intranetId      String?  @unique @map("intranet_id") // Enlace con la Intranet Hospitalaria
+  codigo          String   @unique                     // ej. "UCI-ADU", "URG-GEN", "CIR-GEN"
+  nombre          String                               // ej. "UCI Adultos", "Urgencias Generales", "Cirugía"
+  tipoAsistencia  String   @map("tipo_asistencia")     // ej. "CUIDADOS_INTENSIVOS", "URGENCIAS", "HOSPITALIZACION", "QUIRURGICO"
+  ubicacionPiso   String?  @map("ubicacion_piso")      // ej. "Piso 3 Bloque B"
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relaciones directas con el Servicio
+  empleadosBase         Empleado[]               @relation("ServicioBaseEmpleado")
+  cuadrantes            Cuadrante[]
+  asignacionesEjecutadas AsignacionTurno[]       @relation("ServicioEjecutorTurno")
+  requerimientos        RequerimientoCobertura[]
+  auditorias            AuditoriaCambio[]
+
+  @@index([tipoAsistencia])
+  @@map("servicios")
+}
+
+model CategoriaProfesional {
+  id              String   @id @default(uuid())
+  codigo          String   @unique                     // ej. "MED_ESP", "ENF_JEFE", "AUX_ENF"
+  nombre          String                               // ej. "Médico Especialista", "Enfermero(a) Jefe"
+  descripcion     String?
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  empleados       Empleado[]
+  requerimientos  RequerimientoCobertura[]
+
+  @@map("categorias_profesionales")
+}
+
+model Empleado {
+  id                    String               @id @default(uuid())
+  intranetId            String?              @unique @map("intranet_id") // ID de usuario en la Intranet
+  tipoDocumento         String               @default("CC") @map("tipo_documento") // CC, CE, Pasaporte
+  numeroDocumento       String               @unique @map("numero_documento")      // Cédula
+  nombres               String
+  apellidos             String
+  correoElectronico     String               @unique @map("correo_electronico")
+  telefonoMovil         String?              @map("telefono_movil")
+  rolSistema            RolUsuario           @default(ASISTENCIAL) @map("rol_sistema")
+  horasSemanalesLey     Decimal              @default(44.0) @db.Decimal(5, 2) @map("horas_semanales_ley") // Ley 2101
+  activo                Boolean              @default(true)
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  // Servicio base (adscripción principal) y Categoría Profesional
+  servicioBaseId        String               @map("servicio_base_id")
+  servicioBase          Servicio             @relation("ServicioBaseEmpleado", fields: [servicioBaseId], references: [id])
+  
+  categoriaId           String               @map("categoria_id")
+  categoria             CategoriaProfesional @relation(fields: [categoriaId], references: [id])
+
+  // Relaciones de operación
+  asignaciones          AsignacionTurno[]
+  novedades             NovedadAusencia[]
+  tokensCalendario      TokenCalendario[]
+  auditoriasComoActor   AuditoriaCambio[]    @relation("ActorAuditoria")
+  auditoriasComoAfectado AuditoriaCambio[]   @relation("EmpleadoAfectadoAuditoria")
+
+  // Permutas solicitadas y recibidas
+  permutasSolicitadas   SolicitudPermuta[]   @relation("SolicitantePermuta")
+  permutasRecibidas     SolicitudPermuta[]   @relation("ReceptorPermuta")
+
+  @@index([servicioBaseId])
+  @@index([categoriaId])
+  @@index([numeroDocumento])
+  @@map("empleados")
+}
+
+// ==========================================
+// CATÁLOGO DE TURNOS Y COBERTURAS POR SERVICIO
+// ==========================================
+
+model TipoTurno {
+  id                  String     @id @default(uuid())
+  codigo              String     @unique                   // ej. "M", "T", "N", "G12", "G24", "S", "L"
+  nombre              String                               // ej. "Mañana 6h", "Noche Asistencial 12h"
+  horaInicio          String?    @map("hora_inicio")       // "07:00" (null si es Libre o Saliente)
+  horaFin             String?    @map("hora_fin")          // "19:00"
+  duracionHoras       Decimal    @default(0.0) @db.Decimal(4, 2) @map("duracion_horas") // ej. 6.00, 12.00, 0.00
+  esLaboral           Boolean    @default(true) @map("es_laboral")                      // False para L y S
+  esNocturno          Boolean    @default(false) @map("es_nocturno")                    // True si cruza franja 21:00-06:00
+  colorHex            String     @default("#E0F2FE") @map("color_hex")                  // Color de la ficha en la paleta
+  colorTexto          String     @default("#0369A1") @map("color_texto")                // Color de la tipografía
+  activo              Boolean    @default(true)
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
+
+  // Relaciones
+  asignaciones        AsignacionTurno[]
+  requerimientos      RequerimientoCobertura[]
+
+  @@map("tipos_turno")
+}
+
+model RequerimientoCobertura {
+  id                  String               @id @default(uuid())
+  servicioId          String               @map("servicio_id")
+  servicio            Servicio             @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+  
+  turnoId             String               @map("turno_id")
+  turno               TipoTurno            @relation(fields: [turnoId], references: [id])
+
+  categoriaId         String               @map("categoria_id")
+  categoria           CategoriaProfesional @relation(fields: [categoriaId], references: [id])
+
+  tipoDia             TipoDia              @default(ORDINARIO_HABIL) @map("tipo_dia")
+  cantidadMinima      Int                  @default(1) @map("cantidad_minima") // Personal asistencial requerido
+  activo              Boolean              @default(true)
+
+  @@unique([servicioId, turnoId, categoriaId, tipoDia], name: "cobertura_unica_por_servicio")
+  @@map("requerimientos_cobertura")
+}
+
+// ==========================================
+// CUADRANTES Y ASIGNACIONES (NÚCLEO DEL PLANIFICADOR)
+// ==========================================
+
+model Cuadrante {
+  id                  String            @id @default(uuid())
+  servicioId          String            @map("servicio_id")
+  servicio            Servicio          @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+
+  anio                Int                                         // ej. 2026
+  mes                 Int                                         // 1 a 12
+  estado              EstadoCuadrante   @default(BORRADOR)
+  observaciones       String?
+  publicadoAt         DateTime?         @map("publicado_at")
+  cerradoNominaAt     DateTime?         @map("cerrado_nomina_at")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  // Relaciones
+  asignaciones        AsignacionTurno[]
+  auditorias          AuditoriaCambio[]
+
+  @@unique([servicioId, anio, mes], name: "cuadrante_unico_servicio_periodo")
+  @@index([servicioId, anio, mes])
+  @@map("cuadrantes")
+}
+
+model AsignacionTurno {
+  id                  String            @id @default(uuid())
+  cuadranteId         String            @map("cuadrante_id")
+  cuadrante           Cuadrante         @relation(fields: [cuadranteId], references: [id], onDelete: Cascade)
+
+  servicioEjecutorId  String            @map("servicio_ejecutor_id") // Servicio específico donde se labora el turno
+  servicioEjecutor    Servicio          @relation("ServicioEjecutorTurno", fields: [servicioEjecutorId], references: [id])
+
+  empleadoId          String            @map("empleado_id")
+  empleado            Empleado          @relation(fields: [empleadoId], references: [id])
+
+  turnoId             String            @map("turno_id")
+  turno               TipoTurno         @relation(fields: [turnoId], references: [id])
+
+  fecha               DateTime          @db.Date                  // Fecha exacta del turno (YYYY-MM-DD)
+  esRotacion          Boolean           @default(false) @map("es_rotacion")   // True si laboró en servicio distinto a su base
+  esPlanificado       Boolean           @default(true) @map("es_planificado") // Foto original previa a cambios
+  esRefuerzo          Boolean           @default(false) @map("es_refuerzo")   // Si fue asignado por contingencia
+
+  // ========================================================
+  // DESGLOSE LEGAL EXACTO DE HORAS (CST COLOMBIA PARA NÓMINA)
+  // Permite exportar a Nómina a tiempo constante O(1)
+  // ========================================================
+  horasOrdinariasDiurnas      Decimal   @default(0.0) @db.Decimal(4, 2) @map("hod")
+  horasOrdinariasNocturnas    Decimal   @default(0.0) @db.Decimal(4, 2) @map("hon")
+  horasDominicalesDiurnas     Decimal   @default(0.0) @db.Decimal(4, 2) @map("hdfd")
+  horasDominicalesNocturnas   Decimal   @default(0.0) @db.Decimal(4, 2) @map("hdfn")
+  horasExtrasDiurnas          Decimal   @default(0.0) @db.Decimal(4, 2) @map("hed")
+  horasExtrasNocturnas        Decimal   @default(0.0) @db.Decimal(4, 2) @map("hen")
+  horasExtrasFestivasDiurnas  Decimal   @default(0.0) @db.Decimal(4, 2) @map("hedfd")
+  horasExtrasFestivasNocturnas Decimal  @default(0.0) @db.Decimal(4, 2) @map("hendf")
+
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  @@unique([empleadoId, fecha], name: "un_turno_por_empleado_y_dia")
+  @@index([cuadranteId, fecha])
+  @@index([servicioEjecutorId, fecha])
+  @@index([empleadoId, fecha])
+  @@map("asignaciones_turno")
+}
+
+// ==========================================
+// NOVEDADES, PERMUTAS Y CALENDARIOS MÓVILES
+// ==========================================
+
+model NovedadAusencia {
+  id                  String       @id @default(uuid())
+  empleadoId          String       @map("empleado_id")
+  empleado            Empleado     @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+
+  tipo                TipoNovedad
+  fechaInicio         DateTime     @db.Date @map("fecha_inicio")
+  fechaFin            DateTime     @db.Date @map("fecha_fin")
+  descripcion         String?
+  aprobadoPor         String?      @map("aprobado_por")
+  activo              Boolean      @default(true)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  @@index([empleadoId, fechaInicio, fechaFin])
+  @@map("novedades_ausencia")
+}
+
+model SolicitudPermuta {
+  id                  String             @id @default(uuid())
+  solicitanteId       String             @map("solicitante_id")
+  solicitante         Empleado           @relation("SolicitantePermuta", fields: [solicitanteId], references: [id])
+
+  receptorId          String             @map("receptor_id")
+  receptor            Empleado           @relation("ReceptorPermuta", fields: [receptorId], references: [id])
+
+  fechaOfrecida       DateTime           @db.Date @map("fecha_ofrecida")
+  turnoOfrecidoId     String             @map("turno_ofrecido_id")
+
+  fechaSolicitada     DateTime           @db.Date @map("fecha_solicitada")
+  turnoSolicitadoId   String             @map("turno_solicitado_id")
+
+  estado              EstadoPermuta      @default(PENDIENTE_PAR)
+  motivoSolicitud     String?            @map("motivo_solicitud")
+  motivoRechazo       String?            @map("motivo_rechazo")
+  supervisorId        String?            @map("supervisor_id")
+  fechaResolucion     DateTime?          @map("fecha_resolucion")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  @@index([solicitanteId])
+  @@index([receptorId])
+  @@index([estado])
+  @@map("solicitudes_permuta")
+}
+
+model TokenCalendario {
+  id                  String       @id @default(uuid())
+  empleadoId          String       @map("empleado_id")
+  empleado            Empleado     @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+
+  tokenPrivado        String       @unique @map("token_privado") // UUID o Hash criptográfico
+  activo              Boolean      @default(true)
+  ultimoAccesoAt      DateTime?    @map("ultimo_acceso_at")
+  createdAt           DateTime     @default(now()) @map("created_at")
+
+  @@index([tokenPrivado])
+  @@map("tokens_calendario")
+}
+
+model AuditoriaCambio {
+  id                  String             @id @default(uuid())
+  timestamp           DateTime           @default(now())
+  
+  cuadranteId         String             @map("cuadrante_id")
+  cuadrante           Cuadrante          @relation(fields: [cuadranteId], references: [id], onDelete: Cascade)
+
+  servicioId          String             @map("servicio_id")
+  servicio            Servicio           @relation(fields: [servicioId], references: [id])
+
+  actorId             String             @map("actor_id")
+  actor               Empleado           @relation("ActorAuditoria", fields: [actorId], references: [id])
+
+  empleadoAfectadoId  String             @map("empleado_afectado_id")
+  empleadoAfectado    Empleado           @relation("EmpleadoAfectadoAuditoria", fields: [empleadoAfectadoId], references: [id])
+
+  fechaTurno          DateTime           @db.Date @map("fecha_turno")
+  codigoTurnoAnterior String?            @map("codigo_turno_anterior")
+  codigoTurnoNuevo    String             @map("codigo_turno_nuevo")
+  origenCambio        OrigenCambioTurno  @map("origen_cambio")
+  justificacion       String?
+  ipAddress           String?            @map("ip_address")
+
+  @@index([cuadranteId, fechaTurno])
+  @@index([empleadoAfectadoId])
+  @@index([actorId])
+  @@map("auditorias_cambio")
+}
+
+model FestivoColombia {
+  id                  String       @id @default(uuid())
+  fecha               DateTime     @unique @db.Date // YYYY-MM-DD
+  descripcion         String                        // ej. "Día del Trabajo", "Navidad"
+  anio                Int                           // ej. 2026
+  esIrrenunciable     Boolean      @default(true) @map("es_irrenunciable")
+  createdAt           DateTime     @default(now()) @map("created_at")
+
+  @@index([anio])
+  @@index([fecha])
+  @@map("festivos_colombia")
+}
